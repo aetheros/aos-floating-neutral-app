@@ -1,0 +1,18 @@
+{
+	"name": "aos_neutral_app",
+	"version": "1.0",
+	"exe-name": "aos_neutral_app",
+	"m2m": {
+		"app-name": "neutral-smpl",
+		"app-id": "Nra1.com.aos.iot",
+		"app-id": "Ra1.com.aetheros.aos-floating-neutral-mgmt",
+		"ae-rn": "neutral-smpl"
+	},
+	"files": [
+		"aos_neutral_app"
+	],
+	"permissions": {
+		"max_cpu": 20,
+		"max_memory_mb": 4
+	}
+}

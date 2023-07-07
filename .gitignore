@@ -1,0 +1,9 @@
+*.o
+*.d
+*.swp
+*.swo
+config.mk
+aos_neutral_app
+app_config.json
+*.aos
+*.pem
