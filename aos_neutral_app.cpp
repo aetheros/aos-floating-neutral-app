@@ -13,43 +13,15 @@
 #include <thread>
 #include <iostream>
 #include <fstream>
-//#include <iomanip>
 
 using namespace std::chrono_literals;
 using std::chrono::seconds;
 using std::chrono::minutes;
-
-//using time_point = std::chrono::system_clock::time_point;
 using time_point = std::chrono::time_point< std::chrono::system_clock, std::chrono::seconds >;
 
 using OptionalAcpType = boost::optional<xsd::m2m::AcpType>;
+using OptionalMaxInstances = boost::optional<uint32_t>;
 
-/*
-std::ostream& operator<<( std::ostream& os, m2m::ResponsePrimitive_ptr const response )
-{
-	std::stringstream ss;
-	ss << "rsc: " << getResponseStatusCodeName( *response->responseStatusCode ) << '\n';
-	if( response->primitiveContent.isSet() )
-	{
-		auto& any = response->primitiveContent->getAny();
-		ss << any.dumpJson( 4 ) << '\n';
-	}
-	else
-	{
-		ss << "<no primitive content>\n";
-	}
-	os << ss.str();
-	return os;
-}
-*/
-
-//std::ostream& operator<<( std::ostream& os, m2m::ResponsePrimitive_ptr response )
-//{
-//	//return os << toString( response );
-//	return os;
-//}
-
-//======================================================
 
 struct DSO_API FloatingNeutralConfig : public xsd::xs::ComplexType
 {
@@ -58,7 +30,7 @@ struct DSO_API FloatingNeutralConfig : public xsd::xs::ComplexType
 	FloatingNeutralConfig()
 	{
 		//samplingPeriod = 60;
-		samplingPeriod = 10;
+		samplingPeriod = 30;
 		currentThreshold = 8.0f;
 		varianceThreshold = 0.7f;
 		//alarmContainer = "/PN_CSE/policynet.m2m/cntAosFloatingNeutral";
@@ -138,7 +110,7 @@ public:
     }
 
     m2m::ResponsePrimitive_ptr createContainer( std::string const& parent,
-		std::string const& name, OptionalAcpType const& acpType = {} )
+		std::string const& name, OptionalAcpType const& acpType = {}, OptionalMaxInstances maxNrOfInstances = {} )
     {
         auto container = xsd::m2m::Container::Create();
         container.creator.assign();
@@ -147,6 +119,10 @@ public:
         {
             container.accessControlPolicyIDs.assign( *acpType );
         }
+		if( maxNrOfInstances )
+		{
+			container.maxNrOfInstances = *maxNrOfInstances;
+		}
 
         m2m::Request request = newRequest( m2m::Operation::Create, m2m::To{ parent } );
         request.req->resourceType = xsd::m2m::ResourceType::container;
@@ -158,12 +134,12 @@ public:
     }
 
 	m2m::ResponsePrimitive_ptr createContentInstance( std::string const& container, std::string const& name,
-		xsd::xs::AnyType const& content ) //std::string const& content )
+		xsd::xs::AnyType const& content )
 	{
 		auto ci = xsd::m2m::ContentInstance::Create();
 		ci.creator.assign();
 		ci.resourceName = name;
-		ci.content = content; //xsd::toAnyTypeUnnamed( content );
+		ci.content = content;
 
 		m2m::Request request = newRequest( m2m::Operation::Create, m2m::To{ container } );
 		request.req->resourceType = xsd::m2m::ResourceType::contentInstance;
@@ -222,6 +198,8 @@ public:
 
 class FloatingNeutral : public ExtendedAppEntity
 {
+	std::mutex mutex_;
+
 	std::string const cRootContainerName = "app-config";
 	std::string const cRootContainerPath = std::string( "./" ) + cRootContainerName;
 	std::string const cContainerPath = cRootContainerPath + '/' + getAppName();
@@ -234,6 +212,71 @@ class FloatingNeutral : public ExtendedAppEntity
 	time_point lastTimestamp_;
 	float lastVoltage_{ 0.0f };
 	float lastCurrent_{ 0.0f };
+	int debugTest_{ 0 };
+
+	bool prepare()
+	{
+		activate();
+
+#if 0
+		//TODO remove these deletes
+		auto delRsp = deleteResource( cPath );
+		logInfo( "delRsp: " << *delRsp );
+
+		delRsp = deleteResource( cContainerPath );
+		logInfo( "delRsp2: " << *delRsp );
+
+		delRsp = deleteResource( cRootContainerPath );
+		logInfo( "delRsp3: " << *delRsp );
+#endif
+
+		// TODO maybe error if "./app-config" does not exist
+		if( not ensureContainer( ".", cRootContainerName ) )
+		{
+			logError( "could not ensure container: " << cRootContainerPath );
+			return false;
+		}
+
+		if( not ensureContainer( cRootContainerPath, getAppName() ) )
+		{
+			logError( "could not ensure container: " << cContainerPath );
+			return false;
+		}
+
+		if( not ensureConfigSubscription() )
+		{
+			logError( "could not ensure config subscription" );
+			return false;
+		}
+
+		if( not readConfig() )
+		{
+			logError( "could not read config" );
+			return false;
+		}
+
+		deleteResource( "./metersvc/reads/" + getAppName() );
+		if( not ensureContainer( "./metersvc/reads", getAppName(), {}, 3 ) )
+		{
+			logError( "could not ensure container ./metersvc/reads/" + getAppName() );
+			return false;
+		}
+
+		if( not createPowerQualitySubscription() )
+		{
+			logError( "subscription creation failed" );
+			return false;
+		}
+
+		if( not createMeterReadPowerQualityPolicy() )
+		{
+			logError( "power-quality meter read policy creation failed" );
+			return false;
+		}
+
+		logInfo( "prepared" );
+		return true;
+	}
 
 	void activate()
 	{
@@ -266,15 +309,16 @@ class FloatingNeutral : public ExtendedAppEntity
 	}
 
 	bool ensureContainer( std::string const& parent, std::string const& name,
-		OptionalAcpType const& acpType = {} )
+		OptionalAcpType const& acpType = {}, OptionalMaxInstances maxNrOfInstances = {} )
 	{
-		auto rsp = createContainer( parent, name, acpType );
+		auto rsp = createContainer( parent, name, acpType, maxNrOfInstances );
 		auto const& status = rsp->responseStatusCode;
 		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
 		bool conflict = status == xsd::m2m::ResponseStatusCode::CONFLICT;
 		return created or conflict;
 	}
 
+#if 0
 	bool ensureDefaults()
 	{
 		FloatingNeutralConfig defaultConfig;
@@ -285,102 +329,29 @@ class FloatingNeutral : public ExtendedAppEntity
 		bool conflict = status == xsd::m2m::ResponseStatusCode::CONFLICT;
 		return created or conflict;
 	}
+#endif
 
 	bool ensureConfigSubscription()
 	{
+		deleteResource( cContainerPath + "/config-sub" );
+
 		xsd::m2m::EventNotificationCriteria eventNotificationCriteria;
 		eventNotificationCriteria.notificationEventType.assign()
 			.push_back( xsd::m2m::NotificationEventType::Create_of_Direct_Child_Resource );
-		auto rsp = createSimpleSubscription( cContainerPath, "config-" + getResourceId(),
+
+		auto rsp = createSimpleSubscription( cContainerPath, "config-sub",
 			eventNotificationCriteria );
 		auto const& status = rsp->responseStatusCode;
+
+		logInfo( "config subscription: " << status );
+
 		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
 		bool conflict = status == xsd::m2m::ResponseStatusCode::CONFLICT;
 		return created or conflict;
 	}
 
-	bool createPowerQualitySubscription()
+	bool readConfig()
 	{
-		// set eventNotificationCriteria to creation of child resources
-		xsd::m2m::EventNotificationCriteria eventNotificationCriteria;
-		eventNotificationCriteria.notificationEventType.assign()
-			.push_back( xsd::m2m::NotificationEventType::Create_of_Direct_Child_Resource );
-
-		auto rsp = createSimpleSubscription( "./metersvc/reads", "metersv-" + getResourceId(),
-			eventNotificationCriteria );
-		auto const& statusCode = rsp->responseStatusCode;
-
-		logInfo( "subscription: " << statusCode );
-
-		bool created = statusCode == xsd::m2m::ResponseStatusCode::CREATED;
-		bool conflict =  statusCode == xsd::m2m::ResponseStatusCode::CONFLICT;
-
-		return created or conflict;
-	}
-
-	bool createMeterReadPowerQualityPolicy()
-	{
-		// policy attributes can change, so delete whatever is there first
-		deleteResource( "./metersvc/policies/" + getResourceId() + "-metersv-pol" );
-
-		xsd::mtrsvc::ScheduleInterval scheduleInterval;
-		scheduleInterval.end = nullptr;
-		scheduleInterval.start = "2020-06-19T00:00:00";
-
-		xsd::mtrsvc::TimeSchedule timeSchedule;
-		timeSchedule.recurrencePeriod = *config_.samplingPeriod;
-		timeSchedule.scheduleInterval = std::move(scheduleInterval);
-
-		xsd::mtrsvc::MeterReadSchedule meterReadSchedule;
-		meterReadSchedule.readingType = "powerQuality";
-		meterReadSchedule.timeSchedule = std::move(timeSchedule);
-
-		xsd::mtrsvc::MeterServicePolicy meterServicePolicy;
-		meterServicePolicy = std::move(meterReadSchedule);
-
-		auto response = createContentInstance( "./metersvc/policies", getResourceId() + "-metersv-pol",
-			xsd::toAnyTypeUnnamed( meterServicePolicy ) );
-		auto const& status = response->responseStatusCode;
-
-		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
-
-		return created;
-	}
-
-	bool prepare_config()
-	{
-		//TODO remove these deletes, maybe err if no 'app-config' container instead of creating it
-		auto delRsp = deleteResource( cPath );
-		logInfo( "delRsp: " << *delRsp );
-
-		delRsp = deleteResource( cContainerPath );
-		logInfo( "delRsp2: " << *delRsp );
-
-		delRsp = deleteResource( cRootContainerPath );
-		logInfo( "delRsp3: " << *delRsp );
-
-		//---------------------------------------------------------------------------
-
-		if( not ensureContainer( ".", cRootContainerName ) )
-		{
-			logError( "could not ensure container: " << cRootContainerPath );
-			return false;
-		}
-
-		if( not ensureContainer( cRootContainerPath, getAppName() ) )
-		{
-			logError( "could not ensure container: " << cContainerPath );
-			return false;
-		}
-
-		if( not ensureConfigSubscription() )
-		{
-			logError( "could not ensure config subscription" );
-			return false;
-		}
-
-		//---------------------------------------------------------------------------
-
 		auto retConfigRsp = retrieveResource( cPath );
 		auto retConfigStatus = retConfigRsp->responseStatusCode;
 
@@ -403,33 +374,61 @@ class FloatingNeutral : public ExtendedAppEntity
 		return true;
 	}
 
-	bool prepare()
+	bool createPowerQualitySubscription()
 	{
-		activate();
+		deleteResource( "./metersvc/reads/" + getAppName() + "/power-quality-sub" );
 
-		if( not prepare_config() )
-		{
-			logError( "could not prepare config" );
-			return false;
-		}
+		xsd::m2m::EventNotificationCriteria eventNotificationCriteria;
+		eventNotificationCriteria.notificationEventType.assign()
+			.push_back( xsd::m2m::NotificationEventType::Create_of_Direct_Child_Resource );
 
-		if( not createPowerQualitySubscription() )
-		{
-			logError( "subscription creation failed" );
-			return false;
-		}
+		auto rsp = createSimpleSubscription( "./metersvc/reads/" + getAppName(), "power-quality-sub",
+			eventNotificationCriteria );
+		auto const& status = rsp->responseStatusCode;
 
-		if( not createMeterReadPowerQualityPolicy() )
-		{
-			logError( "power-quality meter read policy creation failed" );
-			return false;
-		}
+		logInfo( "power quality subscription: " << toString( status ) );
 
-		return true;
+		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
+		bool conflict =  status == xsd::m2m::ResponseStatusCode::CONFLICT;
+		return created or conflict;
+	}
+
+	bool createMeterReadPowerQualityPolicy()
+	{
+		// policy attributes can change, so delete whatever is there first
+		deleteResource( "./metersvc/policies/" + getAppName() + "-pol" );
+
+		xsd::mtrsvc::ScheduleInterval scheduleInterval;
+		scheduleInterval.end = nullptr;
+		scheduleInterval.start = "2020-06-19T00:00:00";
+
+		xsd::mtrsvc::TimeSchedule timeSchedule;
+		timeSchedule.recurrencePeriod = *config_.samplingPeriod;
+		timeSchedule.scheduleInterval = std::move( scheduleInterval );
+
+		xsd::mtrsvc::MeterReadSchedule meterReadSchedule;
+		meterReadSchedule.readingType = "powerQuality";
+		meterReadSchedule.timeSchedule = std::move( timeSchedule );
+		meterReadSchedule.destContainer = getAppName();
+
+		xsd::mtrsvc::MeterServicePolicy meterServicePolicy;
+		meterServicePolicy = std::move( meterReadSchedule );
+
+		auto response = createContentInstance( "./metersvc/policies", getAppName() + "-pol",
+			xsd::toAnyTypeUnnamed( meterServicePolicy ) );
+		auto const& status = response->responseStatusCode;
+
+		logInfo( "power quality policy: " << toString( status ) );
+
+		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
+		bool conflict =  status == xsd::m2m::ResponseStatusCode::CONFLICT;
+		return created or conflict;
 	}
 
 	void notificationCallback( m2m::Notification notification )
 	{
+		std::lock_guard<std::mutex> lock( mutex_ );
+
 		auto const& event = notification.notificationEvent;
 		if( not event.isSet() )
 		{
@@ -445,19 +444,19 @@ class FloatingNeutral : public ExtendedAppEntity
 		}
 
 		std::string const& subref = *notification.subscriptionReference;
-		auto configSubName = std::string( "config-" ) + getResourceId();
-		auto meterSubName = std::string( "metersv-" ) + getResourceId();
+		auto configSubName = std::string( "config-sub" ) + getResourceId();
+		auto meterSubName = std::string( "power-quality-sub" );
 
 		if( subref.find( configSubName ) != std::string::npos )
 		{
-			//logInfo( "got config notification" );
+			logInfo( "got config notification" );
 			auto contentInstance = event->representation->extractNamed< xsd::m2m::ContentInstance >();
 			auto newConfig = contentInstance.content->extractUnnamed< FloatingNeutralConfig >();
 			processNewConfig( std::move( newConfig ) );
 		}
 		else if( subref.find( meterSubName ) != std::string::npos )
 		{
-			//logInfo( "got metersv notification" );
+			logInfo( "got metersvc notification" );
 			auto contentInstance = event->representation->extractNamed< xsd::m2m::ContentInstance >();
 			auto meterRead = contentInstance.content->extractUnnamed< xsd::mtrsvc::MeterRead >();
 			auto const& meterSvcData = *(meterRead.meterSvcData);
@@ -564,6 +563,16 @@ class FloatingNeutral : public ExtendedAppEntity
 				{
 					thresholdsExceeded = true;
 				}
+
+#if 0
+				++debugTest_;
+				if( debugTest_ > 2 )
+				{
+					thresholdsExceeded = true;
+					debugTest_ = 0;
+					logInfo( "forcing threshold exceeded to test alarm publishing" );
+				}
+#endif
 			}
 		}
 
@@ -576,10 +585,10 @@ class FloatingNeutral : public ExtendedAppEntity
 		{
 			logWarn( "loss-of-neutral thresholds exceeded: deltaI=" << deltaI << ", deltaV=" << deltaV );
 
-			if( *config_.disconnectService )
-			{
-				disableEnergyService();
-			}
+//			if( *config_.disconnectService )
+//			{
+//				disableEnergyService();
+//			}
 
 			std::ostringstream arg;
 			arg << "Loss Of Neutral: deltaV=" << deltaV << ", deltaI=" << deltaI;
@@ -605,11 +614,15 @@ class FloatingNeutral : public ExtendedAppEntity
 		{
 			logError( "could not retract alarm: " << *rsp );
 		}
+		else
+		{
+			logInfo( "retracted loss of neutral alarm" );
+		}
 	}
 
 	void publishAlarm( std::string const& text )
 	{
-		retractAlarm();
+		deleteResource( *config_.alarmContainer + "/loss-of-neutral-alarm" );
 
 		auto rsp = createContentInstance( *config_.alarmContainer, "loss-of-neutral-alarm", xsd::toAnyTypeUnnamed( text ) );
 		auto status = rsp->responseStatusCode;
@@ -617,7 +630,11 @@ class FloatingNeutral : public ExtendedAppEntity
 
 		if( not created )
 		{
-			logError( "could not publish alarm" << *rsp );
+			logError( "could not publish alarm: " << *rsp );
+		}
+		else
+		{
+			logInfo( "published loss of neutral alarm" );
 		}
 	}
 
@@ -629,9 +646,13 @@ public:
 
 	void run()
 	{
-		while( not prepare() )
 		{
-			std::this_thread::sleep_for( seconds( 30 ) );
+			std::lock_guard<std::mutex> lock( mutex_ );
+
+			while( not prepare() )
+			{
+				std::this_thread::sleep_for( seconds( 30 ) );
+			}
 		}
 
 		waitForever();
