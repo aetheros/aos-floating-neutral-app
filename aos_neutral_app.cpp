@@ -421,7 +421,27 @@ class FloatingNeutral : public ExtendedAppEntity
 		logInfo( "power quality policy: " << toString( status ) );
 
 		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
-		bool conflict =  status == xsd::m2m::ResponseStatusCode::CONFLICT;
+		bool conflict = status == xsd::m2m::ResponseStatusCode::CONFLICT;
+		return created or conflict;
+	}
+
+	bool createServiceOffPolicy()
+	{
+		xsd::mtrsvc::MeterControlSchedule meterControlSchedule;
+		meterControlSchedule.controlSchedule = "2020-06-19T00:00:00";
+		meterControlSchedule.controlType = "serviceOff";
+
+		xsd::mtrsvc::MeterServicePolicy meterServicePolicy;
+		meterServicePolicy = std::move( meterControlSchedule );
+
+		auto response = createContentInstance( "./metersvc/policies", getAppName() + "-control-pol",
+			xsd::toAnyTypeUnnamed( meterServicePolicy ) );
+		auto const& status = response->responseStatusCode;
+
+		logInfo( "serviceOff policy creation: " << toString( status ) );
+
+		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
+		bool conflict = status == xsd::m2m::ResponseStatusCode::CONFLICT;
 		return created or conflict;
 	}
 
@@ -483,7 +503,7 @@ class FloatingNeutral : public ExtendedAppEntity
 		{
 			1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, // valid seconds
 			60*1, 60*2, 60*3, 60*4, 60*5, 60*6, 60*10, 60*12, 60*15, 60*20, 60*30, // valid minutes
-			3600*1, 3600*2, 3600*3, 3600*4, 3600*5, 3600*6, 3600*8, 3600*12, 3600*24, // valid hours
+			3600*1, 3600*2, 3600*3, 3600*4, 3600*6, 3600*8, 3600*12, 3600*24, // valid hours
 		};
 		uint32_t requestedPeriod = *newConfig.samplingPeriod;
 		uint32_t chosenPeriod{ 1 };
@@ -585,10 +605,10 @@ class FloatingNeutral : public ExtendedAppEntity
 		{
 			logWarn( "loss-of-neutral thresholds exceeded: deltaI=" << deltaI << ", deltaV=" << deltaV );
 
-//			if( *config_.disconnectService )
-//			{
-//				disableEnergyService();
-//			}
+			if( *config_.disconnectService )
+			{
+				createServiceOffPolicy();
+			}
 
 			std::ostringstream arg;
 			arg << "Loss Of Neutral: deltaV=" << deltaV << ", deltaI=" << deltaI;
