@@ -7,3 +7,4 @@ aos_neutral_app
 app_config.json
 *.aos
 *.pem
+credential-id
