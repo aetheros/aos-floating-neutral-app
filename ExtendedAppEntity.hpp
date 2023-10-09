@@ -33,7 +33,7 @@ public:
 
         m2m::Request request = newRequest( m2m::Operation::Create, m2m::To{ parent } );
         request.req->resourceType = xsd::m2m::ResourceType::container;
-        request.req->resultContent = xsd::m2m::ResultContent::Attributes;
+        request.req->resultContent = xsd::m2m::ResultContent::Nothing;
         request.req->primitiveContent = xsd::toAnyNamed( container );
 
         sendRequest( request );
@@ -50,7 +50,7 @@ public:
 
 		m2m::Request request = newRequest( m2m::Operation::Create, m2m::To{ container } );
 		request.req->resourceType = xsd::m2m::ResourceType::contentInstance;
-		request.req->resultContent = xsd::m2m::ResultContent::Attributes;
+		request.req->resultContent = xsd::m2m::ResultContent::Nothing;
 		request.req->primitiveContent = xsd::toAnyNamed( ci );
 
 		sendRequest( request );
@@ -95,7 +95,7 @@ public:
 	m2m::ResponsePrimitive_ptr deleteResource( std::string const& path )
 	{
 		m2m::Request request = newRequest( m2m::Operation::Delete, m2m::To{ path } );
-		request.req->resultContent = xsd::m2m::ResultContent::Attributes;
+		request.req->resultContent = xsd::m2m::ResultContent::Nothing;
 		sendRequest( request );
 		return getResponse( request );
 	}
