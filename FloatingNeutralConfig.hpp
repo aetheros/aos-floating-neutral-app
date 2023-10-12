@@ -4,80 +4,60 @@
 #pragma once
 
 #include <aos/Log.hpp>
-#include <m2m/AppEntity.hpp>
+#include <nlohmann/json.hpp>
 
-struct DSO_API FloatingNeutralConfig : public xsd::xs::ComplexType
+struct DSO_API FloatingNeutralConfig
 {
-	typedef xsd::xs::ComplexType base_type;
+	uint32_t samplingPeriod{ 60 };
+	float currentThreshold{ 8.0f };
+	float varianceThreshold{ 0.7f };
+	std::string alarmContainer{ "/PN_CSE/policynet.m2m/cntAosFloatingNeutral" };
+	bool disconnectService{ false };
 
-	FloatingNeutralConfig()
+	FloatingNeutralConfig() = default;
+	FloatingNeutralConfig( std::string const& jsonConfig )
 	{
-		//samplingPeriod = 60;
-		samplingPeriod = 30; // for test
-		currentThreshold = 8.0f;
-		varianceThreshold = 0.7f;
-		//alarmContainer = "/PN_CSE/policynet.m2m/cntAosFloatingNeutral";
-		alarmContainer = "./alarms"; // for test
-		disconnectService = false;
+		using json = nlohmann::json;
+
+		json config = json::parse( jsonConfig );
+
+		if( config.count( "samplingPeriod" ) )
+		{
+			samplingPeriod = config["samplingPeriod"].template get<uint32_t>();
+		}
+		if( config.count( "currentThreshold" ) )
+		{
+			currentThreshold = config["currentThreshold"].template get<float>();
+		}
+		if( config.count( "varianceThreshold" ) )
+		{
+			varianceThreshold = config["varianceThreshold"].template get<float>();
+		}
+		if( config.count( "alarmContainer" ) )
+		{
+			alarmContainer = config["alarmContainer"].template get<std::string>();
+		}
+		if( config.count( "disconnectService" ) )
+		{
+			disconnectService = config["disconnectService"].template get<bool>();
+		}
 	}
-	~FloatingNeutralConfig() override = default;
+
+	std::string dump()
+	{
+		nlohmann::json config;
+		config[ "samplingPeriod" ] = samplingPeriod;
+		config[ "currentThreshold" ] = currentThreshold;
+		config[ "varianceThreshold" ] = varianceThreshold;
+		config[ "alarmContainer" ] = alarmContainer;
+		config[ "disconnectService" ] = disconnectService;
+		return config.dump();
+	}
+
+	~FloatingNeutralConfig() = default;
 
 	FloatingNeutralConfig( FloatingNeutralConfig && ) = default;
 	FloatingNeutralConfig( FloatingNeutralConfig const& ) = default;
 	FloatingNeutralConfig& operator=( FloatingNeutralConfig && ) = default;
 	FloatingNeutralConfig& operator=( FloatingNeutralConfig const& ) = default;
-
-	//static const char * const qualifiedShortName; //!< The qualified short name ('m2m:dmd')
-	//const char *getQualifiedShortName() const override; //!< Get the qualified short name
-
-	bool unmarshallMember( xsd::Unmarshaller& m, char const* memberName ) override //!< unmarshalls one member element
-	{
-		if( base_type::unmarshallMember( m, memberName ) )
-		{
-			return true;
-		}
-		else if( std::strcmp( memberName, "samplingPeriod" ) == 0 )
-		{
-			m >> samplingPeriod;
-			return true;
-		}
-		else if( std::strcmp( memberName, "currentThreshold" ) == 0 )
-		{
-			m >> currentThreshold;
-			return true;
-		}
-		else if( std::strcmp( memberName, "varianceThreshold" ) == 0 )
-		{
-			m >> varianceThreshold;
-			return true;
-		}
-		else if( std::strcmp( memberName, "alarmContainer" ) == 0 )
-		{
-			m >> alarmContainer;
-			return true;
-		}
-		else if( std::strcmp( memberName, "disconnectService" ) == 0 )
-		{
-			m >> disconnectService;
-			return true;
-		}
-		return false;
-	}
-
-	void marshallMembers( xsd::Marshaller& m ) const override //!< marshalls all member element
-	{
-		base_type::marshallMembers( m );
-		m << xsd::member( "samplingPeriod" ) << samplingPeriod;
-		m << xsd::member( "currentThreshold" ) << currentThreshold;
-		m << xsd::member( "varianceThreshold" ) << varianceThreshold;
-		m << xsd::member( "alarmContainer" ) << alarmContainer;
-		m << xsd::member( "disconnectService" ) << disconnectService;
-		return;
-	}
-
-	xsd::xs::Element<xsd::xs::Integer, 0> samplingPeriod{ "samplingPeriod" };
-	xsd::xs::Element<xsd::xs::Float, 0> currentThreshold{ "currentThreshold" };
-	xsd::xs::Element<xsd::xs::Float, 0> varianceThreshold{ "varianceThreshold" };
-	xsd::xs::Element<xsd::xs::String, 0> alarmContainer{ "alarmContainer" };
-	xsd::xs::Element<xsd::xs::Boolean, 0> disconnectService{ "disconnectService" };
 };

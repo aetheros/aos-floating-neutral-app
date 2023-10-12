@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <aos/Log.hpp>
 #include <m2m/AppEntity.hpp>
 
 using OptionalAcpType = boost::optional<xsd::m2m::AcpType>;
@@ -10,6 +11,30 @@ using OptionalMaxInstances = boost::optional<uint32_t>;
 
 class ExtendedAppEntity : public m2m::AppEntity
 {
+    std::string const cRootContainerName = "app-config";
+    std::string const cRootContainerPath = std::string( "./" ) + cRootContainerName;
+    std::string const cContainerPath = cRootContainerPath + '/' + getAppName();
+    std::string const cPath = cContainerPath + "/latest";
+
+	bool ensureConfigSubscription()
+	{
+		deleteResource( cContainerPath + "/config-sub" );
+
+		xsd::m2m::EventNotificationCriteria eventNotificationCriteria;
+		eventNotificationCriteria.notificationEventType.assign()
+			.push_back( xsd::m2m::NotificationEventType::Create_of_Direct_Child_Resource );
+
+		auto rsp = createSimpleSubscription( cContainerPath, "config-sub",
+			eventNotificationCriteria );
+		auto const& status = rsp->responseStatusCode;
+
+		logInfo( "config subscription: " << status );
+
+		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
+		bool conflict = status == xsd::m2m::ResponseStatusCode::CONFLICT;
+		return created or conflict;
+	}
+
 public:
 	ExtendedAppEntity( NotificationCallback cb )
 		: AppEntity( cb )
@@ -39,6 +64,16 @@ public:
         sendRequest( request );
         return getResponse( request );
     }
+
+	bool ensureContainer( std::string const& parent, std::string const& name,
+		OptionalAcpType const& acpType = {}, OptionalMaxInstances maxNrOfInstances = {} )
+	{
+		auto rsp = createContainer( parent, name, acpType, maxNrOfInstances );
+		auto const& status = rsp->responseStatusCode;
+		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
+		bool conflict = status == xsd::m2m::ResponseStatusCode::CONFLICT;
+		return created or conflict;
+	}
 
 	m2m::ResponsePrimitive_ptr createContentInstance( std::string const& container, std::string const& name,
 		xsd::xs::AnyType const& content )
@@ -98,5 +133,51 @@ public:
 		request.req->resultContent = xsd::m2m::ResultContent::Nothing;
 		sendRequest( request );
 		return getResponse( request );
+	}
+
+	bool initConfig()
+	{
+		auto rsp = retrieveResource( cRootContainerPath );
+		if( rsp->responseStatusCode != xsd::m2m::ResponseStatusCode::OK )
+		{
+			logError( "could not retrieve root config container: " << cRootContainerPath );
+			return false;
+		}
+
+		if( not ensureContainer( cRootContainerPath, getAppName(), {}, 1 ) )
+		{
+			logError( "could not ensure container: " << cContainerPath );
+			return false;
+		}
+
+		if( not ensureConfigSubscription() )
+		{
+			logError( "could not ensure config subscription" );
+			return false;
+		}
+
+		return true;
+	}
+
+	std::string retrieveConfig()
+	{
+		auto retConfigRsp = retrieveResource( cPath );
+		auto retConfigStatus = retConfigRsp->responseStatusCode;
+
+		if( retConfigStatus == xsd::m2m::ResponseStatusCode::OK )
+		{
+			auto contentInstance = retConfigRsp->primitiveContent->any.extractNamed< xsd::m2m::ContentInstance >();
+			return contentInstance.content->dumpJson();
+		}
+		else if( retConfigStatus == xsd::m2m::ResponseStatusCode::NOT_FOUND )
+		{
+			// nothing to do here, app should use default values
+		}
+		else
+		{
+			logError( "not able to retrieve config: " << *retConfigRsp );
+		}
+
+		return "{}";
 	}
 };
