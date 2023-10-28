@@ -1,7 +1,6 @@
 // vim: sw=4 expandtab
 // Copyright (c) Aetheros, Inc.  See COPYRIGHT
 
-#include "ExtendedAppEntity.hpp"
 #include "FloatingNeutralConfig.hpp"
 
 #include <aos/Log.hpp>
@@ -23,10 +22,7 @@ using std::chrono::seconds;
 using std::chrono::minutes;
 using time_point = std::chrono::time_point< std::chrono::system_clock, std::chrono::seconds >;
 
-using OptionalAcpType = boost::optional<xsd::m2m::AcpType>;
-using OptionalMaxInstances = boost::optional<uint32_t>;
-
-class FloatingNeutral : public ExtendedAppEntity
+class FloatingNeutral : public m2m::AppEntity
 {
 	std::mutex mutex_;
 
@@ -43,7 +39,7 @@ class FloatingNeutral : public ExtendedAppEntity
 	{
 		activate();
 
-		if( not initConfig() )
+		if( not initConfig( std::bind( &FloatingNeutral::processConfig, this, std::placeholders::_1 ) ) )
 		{
 			logError( "could not subscribe to config container" );
 			return false;
@@ -52,7 +48,7 @@ class FloatingNeutral : public ExtendedAppEntity
 		processConfig( retrieveConfig() );
 
 		deleteResource( "./metersvc/reads/" + getAppName() );
-		if( not ensureContainer( "./metersvc/reads", getAppName(), {}, 3 ) )
+		if( not ensureSimpleContainer( "./metersvc/reads", getAppName(), {}, 3 ) )
 		{
 			logError( "could not ensure container ./metersvc/reads/" + getAppName() );
 			return false;
@@ -144,7 +140,7 @@ class FloatingNeutral : public ExtendedAppEntity
 		xsd::mtrsvc::MeterServicePolicy meterServicePolicy;
 		meterServicePolicy = std::move( meterReadSchedule );
 
-		auto response = createContentInstance( "./metersvc/policies", getAppName() + "-pol",
+		auto response = createSimpleContentInstance( "./metersvc/policies", getAppName() + "-pol",
 			xsd::toAnyTypeUnnamed( meterServicePolicy ) );
 		auto const& status = response->responseStatusCode;
 
@@ -164,7 +160,7 @@ class FloatingNeutral : public ExtendedAppEntity
 		xsd::mtrsvc::MeterServicePolicy meterServicePolicy;
 		meterServicePolicy = std::move( meterControlSchedule );
 
-		auto response = createContentInstance( "./metersvc/policies", getAppName() + "-control-pol",
+		auto response = createSimpleContentInstance( "./metersvc/policies", getAppName() + "-control-pol",
 			xsd::toAnyTypeUnnamed( meterServicePolicy ) );
 		auto const& status = response->responseStatusCode;
 
@@ -194,17 +190,9 @@ class FloatingNeutral : public ExtendedAppEntity
 		}
 
 		std::string const& subref = *notification.subscriptionReference;
-		auto configSubName = std::string( "config-sub" );
 		auto meterSubName = std::string( "power-quality-sub" );
 
-		if( subref.find( configSubName ) != std::string::npos )
-		{
-			logInfo( "got config notification" );
-			auto contentInstance = event->representation->extractNamed< xsd::m2m::ContentInstance >();
-			auto config = contentInstance.content->dumpJson();
-			processConfig( config );
-		}
-		else if( subref.find( meterSubName ) != std::string::npos )
+		if( subref.find( meterSubName ) != std::string::npos )
 		{
 			logInfo( "got metersvc notification" );
 			auto contentInstance = event->representation->extractNamed< xsd::m2m::ContentInstance >();
@@ -377,7 +365,7 @@ class FloatingNeutral : public ExtendedAppEntity
 	{
 		deleteResource( config_.alarmContainer + "/loss-of-neutral-alarm" );
 
-		auto rsp = createContentInstance( config_.alarmContainer, "loss-of-neutral-alarm", xsd::toAnyTypeUnnamed( text ) );
+		auto rsp = createSimpleContentInstance( config_.alarmContainer, "loss-of-neutral-alarm", xsd::toAnyTypeUnnamed( text ) );
 		auto status = rsp->responseStatusCode;
 		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
 
@@ -393,7 +381,7 @@ class FloatingNeutral : public ExtendedAppEntity
 
 public:
     FloatingNeutral()
-		: ExtendedAppEntity( std::bind( &FloatingNeutral::notificationCallback, this, std::placeholders::_1 ) )
+		: AppEntity( std::bind( &FloatingNeutral::notificationCallback, this, std::placeholders::_1 ) )
     {
     }
 
