@@ -27,6 +27,7 @@ class FloatingNeutral : public m2m::AppEntity
 
 	FloatingNeutralConfig config_;
 
+	bool policyCreated{ false };
 	bool thresholdsCurrentlyExceeded_{ false };
 	bool haveLast_{ false };
 	time_point lastTimestamp_;
@@ -100,7 +101,7 @@ class FloatingNeutral : public m2m::AppEntity
 			"power-quality-sub", eventNotificationCriteria );
 	}
 
-	bool createMeterReadPowerQualityPolicy()
+	void createMeterReadPowerQualityPolicy()
 	{
 		// policy attributes can change, so delete whatever is there first
 		deleteResource( "./metersvc/policies/" + getAppName() + "-pol" );
@@ -128,8 +129,15 @@ class FloatingNeutral : public m2m::AppEntity
 		logInfo( "power quality policy: " << toString( status ) );
 
 		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
-		bool conflict = status == xsd::m2m::ResponseStatusCode::CONFLICT;
-		return created or conflict;
+
+		if( not created )
+		{
+			logWarn( "unable to create meter read power quality policy" );
+		}
+		else
+		{
+			policyCreated = true;
+		}
 	}
 
 	bool createServiceOffPolicy()
@@ -192,10 +200,13 @@ class FloatingNeutral : public m2m::AppEntity
 		logInfo( "processing new config: " << config );
 		FloatingNeutralConfig newConfig( config );
 		sanitize( newConfig );
+		auto sameSamplingPeriod = ( newConfig.samplingPeriod == config_.samplingPeriod );
 		config_ = std::move( newConfig );
 		logInfo( "new config values: " << config_.dump() );
-		// sampling period might have changed, so create new policy
-		createMeterReadPowerQualityPolicy();
+		if( not sameSamplingPeriod or not policyCreated )
+		{
+			createMeterReadPowerQualityPolicy();
+		}
 		haveLast_ = false;
 	}
 
