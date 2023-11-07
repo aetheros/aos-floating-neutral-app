@@ -12,7 +12,6 @@
 #include <xsd/mtrsvc/MeterServicePolicy.hpp>
 #include <xsd/mtrsvc/MeterRead.hpp>
 #include <xsd/mtrsvc/Names.hpp>
-#include <nlohmann/json.hpp>
 #include <thread>
 #include <iostream>
 #include <fstream>
@@ -39,15 +38,6 @@ class FloatingNeutral : public m2m::AppEntity
 	{
 		activate();
 
-		if( not initConfig( std::bind( &FloatingNeutral::processConfig, this, std::placeholders::_1 ) ) )
-		{
-			logError( "could not subscribe to config container" );
-			return false;
-		}
-
-		processConfig( retrieveConfig() );
-
-		deleteResource( "./metersvc/reads/" + getAppName() );
 		if( not ensureSimpleContainer( "./metersvc/reads", getAppName(), {}, 3 ) )
 		{
 			logError( "could not ensure container ./metersvc/reads/" + getAppName() );
@@ -60,9 +50,9 @@ class FloatingNeutral : public m2m::AppEntity
 			return false;
 		}
 
-		if( not createMeterReadPowerQualityPolicy() )
+		if( not initConfig( std::bind( &FloatingNeutral::processConfig, this, std::placeholders::_1 ) ) )
 		{
-			logError( "power-quality meter read policy creation failed" );
+			logError( "could not subscribe to config container" );
 			return false;
 		}
 
@@ -102,21 +92,12 @@ class FloatingNeutral : public m2m::AppEntity
 
 	bool createPowerQualitySubscription()
 	{
-		deleteResource( "./metersvc/reads/" + getAppName() + "/power-quality-sub" );
-
 		xsd::m2m::EventNotificationCriteria eventNotificationCriteria;
 		eventNotificationCriteria.notificationEventType.assign()
 			.push_back( xsd::m2m::NotificationEventType::Create_of_Direct_Child_Resource );
 
-		auto rsp = createSimpleSubscription( "./metersvc/reads/" + getAppName(), "power-quality-sub",
-			eventNotificationCriteria );
-		auto const& status = rsp->responseStatusCode;
-
-		logInfo( "power quality subscription: " << toString( status ) );
-
-		bool created = status == xsd::m2m::ResponseStatusCode::CREATED;
-		bool conflict =  status == xsd::m2m::ResponseStatusCode::CONFLICT;
-		return created or conflict;
+		return ensureSimpleSubscription( "./metersvc/reads/" + getAppName(),
+			"power-quality-sub", eventNotificationCriteria );
 	}
 
 	bool createMeterReadPowerQualityPolicy()
@@ -206,10 +187,10 @@ class FloatingNeutral : public m2m::AppEntity
 		}
 	}
 
-	void processConfig( std::string const& jsonConfig )
+	void processConfig( aos::Json config )
 	{
-		logInfo( "processing new config: " << jsonConfig );
-		FloatingNeutralConfig newConfig( jsonConfig );
+		logInfo( "processing new config: " << config );
+		FloatingNeutralConfig newConfig( config );
 		sanitize( newConfig );
 		config_ = std::move( newConfig );
 		logInfo( "new config values: " << config_.dump() );

@@ -4,7 +4,7 @@
 #pragma once
 
 #include <aos/Log.hpp>
-#include <nlohmann/json.hpp>
+#include <aos/Json.hpp>
 
 struct DSO_API FloatingNeutralConfig
 {
@@ -15,12 +15,8 @@ struct DSO_API FloatingNeutralConfig
 	bool disconnectService{ false };
 
 	FloatingNeutralConfig() = default;
-	FloatingNeutralConfig( std::string const& jsonConfig )
+	FloatingNeutralConfig( aos::Json config )
 	{
-		using json = nlohmann::json;
-
-		json config = json::parse( jsonConfig );
-
 		if( config.count( "samplingPeriod" ) )
 		{
 			samplingPeriod = config["samplingPeriod"].template get<uint32_t>();
@@ -45,7 +41,7 @@ struct DSO_API FloatingNeutralConfig
 
 	std::string dump()
 	{
-		nlohmann::json config;
+		aos::Json config;
 		config[ "samplingPeriod" ] = samplingPeriod;
 		config[ "currentThreshold" ] = currentThreshold;
 		config[ "varianceThreshold" ] = varianceThreshold;
