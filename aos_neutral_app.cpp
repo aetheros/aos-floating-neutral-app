@@ -12,6 +12,7 @@
 #include <xsd/mtrsvc/MeterServicePolicy.hpp>
 #include <xsd/mtrsvc/MeterRead.hpp>
 #include <xsd/mtrsvc/Names.hpp>
+#include <xsd/Json.hpp>
 #include <thread>
 #include <iostream>
 #include <fstream>
@@ -195,8 +196,9 @@ class FloatingNeutral : public m2m::AppEntity
 		}
 	}
 
-	void processConfig( aos::Json config )
+	void processConfig( xsd::xs::AnyType anyConfig )
 	{
+		auto config = xsd::toJson( anyConfig );
 		logInfo( "processing new config: " << config );
 		FloatingNeutralConfig newConfig( config );
 		sanitize( newConfig );
