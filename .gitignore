@@ -8,3 +8,4 @@ app_config.json
 *.aos
 *.pem
 credential-id
+certs
