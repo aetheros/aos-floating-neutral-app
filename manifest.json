@@ -1,14 +1,14 @@
 {
-	"name": "aos_neutral_app",
+	"name": "aos_floating_neutral_app",
 	"version": "1.0",
-	"exe-name": "aos_neutral_app",
+	"exe-name": "aos_floating_neutral_app",
 	"m2m": {
 		"app-name": "neutral-smpl",
 		"app-id": "Ra1.com.aetheros.aos-floating-neutral-mgmt",
 		"ae-rn": "neutral-smpl"
 	},
 	"files": [
-		"aos_neutral_app"
+		"aos_floating_neutral_app"
 	],
 	"permissions": {
 		"max_cpu": 20,

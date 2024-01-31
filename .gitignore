@@ -3,7 +3,7 @@
 *.swp
 *.swo
 config.mk
-aos_neutral_app
+aos_floating_neutral_app
 app_config.json
 *.aos
 *.pem
